@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Branching Strategy - Interactive Guide</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a1628; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+  #game-container { width: 100vw; height: 100vh; }
+  canvas { display: block; }
+
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
+  }
+
+  #nav-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; justify-content: center; gap: 12px;
+    padding: 14px 20px; background: rgba(10,22,40,0.92);
+    border-top: 1px solid rgba(243,156,18,0.3);
+    pointer-events: all; z-index: 20;
+  }
+
+  .nav-btn {
+    padding: 8px 18px; border-radius: 6px;
+    border: 1px solid rgba(243,156,18,0.5);
+    background: rgba(243,156,18,0.1); color: #f39c12;
+    font-size: 13px; cursor: pointer; transition: all 0.2s;
+    font-family: 'Segoe UI', sans-serif; letter-spacing: 0.5px;
+  }
+  .nav-btn:hover, .nav-btn.active {
+    background: rgba(243,156,18,0.3); border-color: #f39c12;
+    color: #fff; transform: translateY(-1px);
+  }
+
+  #info-panel {
+    position: fixed; right: 20px; top: 20px;
+    width: 300px; background: rgba(10,22,40,0.95);
+    border: 1px solid rgba(243,156,18,0.4);
+    border-radius: 10px; padding: 16px;
+    pointer-events: all; z-index: 20;
+    transform: translateX(340px); transition: transform 0.4s ease;
+    max-height: 80vh; overflow-y: auto;
+  }
+  #info-panel.open { transform: translateX(0); }
+  #info-panel h3 { color: #f39c12; font-size: 15px; margin-bottom: 8px; }
+  #info-panel p { color: #cdd; font-size: 13px; line-height: 1.6; margin-bottom: 8px; }
+  #info-panel .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; margin: 2px; font-family: monospace;
+  }
+  .tag-feature { background: rgba(46,204,113,0.2); color: #2ecc71; border: 1px solid #2ecc71; }
+  .tag-bugfix  { background: rgba(231,76,60,0.2);  color: #e74c3c; border: 1px solid #e74c3c; }
+  .tag-hotfix  { background: rgba(230,126,34,0.2); color: #e67e22; border: 1px solid #e67e22; }
+  .tag-release { background: rgba(155,89,182,0.2); color: #9b59b6; border: 1px solid #9b59b6; }
+  .tag-main    { background: rgba(52,152,219,0.2); color: #3498db; border: 1px solid #3498db; }
+  .tag-spike   { background: rgba(243,156,18,0.2); color: #f39c12; border: 1px solid #f39c12; }
+  #close-panel {
+    position: absolute; top: 10px; right: 12px;
+    color: #888; cursor: pointer; font-size: 18px;
+  }
+  #close-panel:hover { color: #f39c12; }
+
+  #scene-title {
+    position: fixed; top: 20px; left: 20px;
+    color: rgba(243,156,18,0.9); font-size: 22px;
+    font-weight: 700; letter-spacing: 1px; z-index: 20;
+    pointer-events: none; text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+  }
+  #scene-hint {
+    position: fixed; top: 52px; left: 20px;
+    color: rgba(180,200,220,0.7); font-size: 12px;
+    z-index: 20; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+
+<div id="scene-title">Branching Strategy</div>
+<div id="scene-hint">Click elements to learn more</div>
+
+<div id="info-panel">
+  <span id="close-panel">✕</span>
+  <h3 id="panel-title">Title</h3>
+  <div id="panel-body"></div>
+</div>
+
+<div id="nav-bar">
+  <button class="nav-btn active" data-scene="overview">Overview</button>
+  <button class="nav-btn" data-scene="tier1">Solo</button>
+  <button class="nav-btn" data-scene="tier2">Small Team</button>
+  <button class="nav-btn" data-scene="lifecycle">Lifecycle</button>
+  <button class="nav-btn" data-scene="naming">Naming</button>
+  <button class="nav-btn" data-scene="ai">AI Pairing</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script>
+// ─── Colour palette ────────────────────────────────────────────────────────
+const C = {
+  bg:      0x0a1628,
+  navy:    0x0d1f3c,
+  navyL:   0x122040,
+  gold:    0xf39c12,
+  goldD:   0xe08b0a,
+  main:    0x3498db,
+  feature: 0x2ecc71,
+  bugfix:  0xe74c3c,
+  hotfix:  0xe67e22,
+  release: 0x9b59b6,
+  spike:   0xf39c12,
+  chore:   0x1abc9c,
+  white:   0xffffff,
+  dimText: 0x8899aa,
+  panel:   0x0d2040,
+};
+
+// ─── Info content ──────────────────────────────────────────────────────────
+const INFO = {
+  overview: {
+    title: 'Branching Strategy: Overview',
+    body: `<p>Follows the DevOps-prepared baseline: four long-lived branches mapped to four environments (development, staging/QA, UAT release, production), with strategic additions for naming, lifecycle, hotfixes, hygiene, and AI pairing.</p>
+<p><strong>The flow:</strong> feature cut from <strong>staging</strong> &rarr; PR to <strong>development</strong> (integration) &rarr; PR to <strong>staging</strong> (QA) &rarr; <strong>release/yyyy-mm-dd</strong> cut from staging (UAT) &rarr; <strong>main</strong> (production).</p>
+<p>Click any tier card or branch type to drill in.</p>`
+  },
+  development: {
+    title: 'development: integration environment',
+    body: `<p><span class="tag tag-main">development</span></p>
+<p>First long-lived branch developers integrate into. Receives the <strong>first PR</strong> from every feature/bugfix/chore branch so the team can verify the change integrates before QA sees it.</p>
+<p>Created from <strong>staging</strong> at repo init. Protected: CI must pass, PRs required, no force-push.</p>`
+  },
+  staging: {
+    title: 'staging: QA environment',
+    body: `<p><span class="tag tag-chore">staging</span></p>
+<p>The QA-tested integration branch. <strong>Feature/bugfix/chore branches are cut from here</strong>, and after they pass integration on <strong>development</strong> they are PR'd back here for QA validation.</p>
+<p>Created from <strong>main</strong> at repo init. Source of every <strong>release/yyyy-mm-dd</strong> branch near sprint end.</p>`
+  },
+  release: {
+    title: 'release/yyyy-mm-dd: UAT environment',
+    body: `<p><span class="tag tag-release">release/2026-05-22</span></p>
+<p>Cut from <strong>staging</strong> near the end of each sprint. Represents the UAT environment where business users validate the sprint's release candidate.</p>
+<p>After UAT pass: merged into <strong>main</strong> and tagged (<code>vX.Y.Z</code>). Archived one sprint after closure.</p>`
+  },
+  main: {
+    title: 'main: production',
+    body: `<p><span class="tag tag-release">main</span></p>
+<p>Production-ready code. Only validated <strong>release/*</strong> branches and <strong>hotfix/*</strong> branches are merged here.</p>
+<p>Tagged on every deploy with <code>vX.Y.Z</code>. Additive improvement over the baseline so changelogs, rollbacks, and hotfix bases are unambiguous.</p>`
+  },
+  feature: {
+    title: 'feature/* branch',
+    body: `<p><span class="tag tag-feature">feature/TICKET-slug</span></p>
+<p>Short-lived work branches. <strong>Cut from staging</strong> (not development). Double-PR pattern:</p>
+<ol><li>PR to <strong>development</strong> (developer integration validation)</li><li>PR same branch to <strong>staging</strong> (QA validation)</li></ol>
+<p>Target lifetime: <strong>days, not weeks</strong>. One ticket = one branch. Open a <strong>draft PR immediately</strong> on push.</p>`
+  },
+  bugfix: {
+    title: 'bugfix/* branch',
+    body: `<p><span class="tag tag-bugfix">bugfix/TICKET-slug</span></p>
+<p>Pre-release bug fix. Same flow as feature/*: cut from <strong>staging</strong>, PR to <strong>development</strong>, then PR to <strong>staging</strong>.</p>
+<p>Lifetime: days. Do not let these live past a sprint.</p>`
+  },
+  hotfix: {
+    title: 'hotfix/* branch (strategic addition)',
+    body: `<p><span class="tag tag-hotfix">hotfix/TICKET-slug</span></p>
+<p>Urgent post-production fix. The DevOps baseline doesn't cover this, so we add it. Cut from the <strong>latest tag on main</strong> (not staging or development, which may carry unreleased work).</p>
+<p><strong>Merge to main, tag, then forward-port</strong> to active release/*, then staging, then development. Skip any forward-port step and the bug reappears at the next promotion. Lifetime: <strong>hours</strong>.</p>`
+  },
+  spike: {
+    title: 'spike/* and username/* branches',
+    body: `<p><span class="tag tag-spike">spike/payment-refactor</span> <span class="tag tag-spike">anthony/excel-prototype</span></p>
+<p>Exploratory work only. <strong>Never merged directly</strong>. If the idea works, rebuild it as a proper feature/* branch.</p>
+<p>TTL: 7 days AI-assisted, 14 days human. Delete the losers; don't let them rot.</p>`
+  },
+  tier1: {
+    title: 'Tier 1: Individual / Solo (collapsed subset)',
+    body: `<p>1 active contributor. The full four-environment flow has no value without people to coordinate with, so this tier deliberately <strong>deviates</strong> from the baseline: only <code>development</code> and <code>main</code> are used.</p>
+<p>Feature/bugfix branches cut from <strong>development</strong>, PR back to development. main tagged on release.</p>
+<p><strong>Graduate to Tier 2</strong> (full baseline) the moment a second regular contributor joins.</p>`
+  },
+  tier2: {
+    title: 'Tier 2: Small Team (full DevOps baseline)',
+    body: `<p>2-8 contributors. Implements the DevOps baseline <strong>without modification</strong>: four long-lived branches (development, staging, release/yyyy-mm-dd, main), four environments, double-PR feature flow.</p>
+<p>Additions on top: naming convention enforcement, lifecycle discipline, hotfix flow, auto-delete on merge, stale-branch sweeps, AI-pairing rules.</p>
+<p>PRs required everywhere, minimum <strong>1 reviewer</strong>.</p>`
+  },
+  lifecycle0: {
+    title: 'Stage 0 - Claim',
+    body: `<p>Before touching any code: move ticket to <strong>In Progress</strong>, check for overlapping in-flight work, size the scope, decide the branch name.</p>
+<p>Naming it later is how test-1/test-2/test end up as permanent branch names.</p>`
+  },
+  lifecycle1: {
+    title: 'Stage 1: Birth',
+    body: `<p>Push the branch immediately, even an empty skeleton commit. A pushed branch is a <strong>passive claim flag</strong> visible to all teammates.</p>
+<p>Open a <strong>draft PR</strong> right away. Branch from the correct base: <strong>staging</strong> for feature/bugfix/chore/spike, <strong>deployed tag on main</strong> for hotfix, <strong>staging</strong> for release/* (cut by release manager at sprint end).</p>`
+  },
+  lifecycle2: {
+    title: 'Stage 2: Active Development',
+    body: `<p>Commit small and often with messages that explain <strong>why</strong>. Sync with <strong>staging</strong> daily via rebase so the double-PR (to development then back to staging) stays painless.</p>
+<p>Branch age is the best predictor of merge pain. Feature/bugfix target: <strong>days</strong>. Hotfix: <strong>hours</strong>.</p>
+<p>If paused: commit + push a SESSION.md note so the branch reads as paused, not abandoned.</p>`
+  },
+  lifecycle3: {
+    title: 'Stage 3: Integration (PR + Review + CI)',
+    body: `<p>Open the real PR the moment work is complete, not at end of day. CI gates run automatically: build, test, lint, SAST scan.</p>
+<p>PR description explains <strong>what changed and why</strong>. Keep PRs small enough to actually review.</p>`
+  },
+  lifecycle4: {
+    title: 'Stage 4: Merge',
+    body: `<p><strong>feature/*, bugfix/*, chore/*</strong> &rarr; squash-merge first to <strong>development</strong> (integration), then squash-merge same branch to <strong>staging</strong> (QA).<br>
+<strong>release/yyyy-mm-dd</strong> &rarr; merged to <strong>main</strong> after UAT pass, then tagged (<code>vX.Y.Z</code>).<br>
+<strong>hotfix/*</strong> &rarr; merge to main, tag, forward-port to active release/*, then staging, then development.<br>
+<strong>spike/*, username/*</strong> &rarr; never merged directly.</p>`
+  },
+  lifecycle5: {
+    title: 'Stage 5: Death (Cleanup)',
+    body: `<p><strong>Auto-delete on merge.</strong> Both GitHub and Bitbucket support this. Turn it on everywhere.</p>
+<p>Scheduled sweeps for branches that don't go through a PR. Git history already IS the archive. Delete, don't hoard "just in case."</p>`
+  },
+  lifecycle: {
+    title: 'Branch Lifecycle: 6 Stages',
+    body: `<p>Every branch moves through six stages: <strong>Claim &rarr; Birth &rarr; Develop &rarr; Integrate &rarr; Merge &rarr; Delete</strong>.</p>
+<p>The shape is the same regardless of branch type. What changes is the cadence and ceremony. Click any stage to drill in.</p>`
+  },
+  naming: {
+    title: 'Naming Convention',
+    body: `<p>All lowercase, hyphen-delimited, one ticket per branch. The pattern is <code>type/TICKET-short-slug</code>.</p>
+<p>Enforce via Bitbucket/GitHub branching model + branch permissions - convention alone drifts within months.</p>`
+  },
+  naming_bad: {
+    title: 'Common anti-patterns to avoid',
+    body: `<p>These are illustrative examples - the kinds of branches that accumulate when there's no enforcement. Casing drift on the same intent:</p>
+<p><code style="color:#e74c3c">bugFix/</code> · <code style="color:#e74c3c">Bugfix/</code> · <code style="color:#e74c3c">bug/</code> · <code style="color:#e74c3c">BUGFIX/</code></p>
+<p>Comma-separated multi-ticket branches: <code style="color:#e74c3c">feature/APP-100,APP-101,APP-102</code></p>
+<p>Stale clutter from abandoned experiments. Merge-conflict-named branches: <code style="color:#e74c3c">mergeConflict/APP-220-dev</code></p>
+<p>Dates and RC info jammed into branch names instead of tags: <code style="color:#e74c3c">release/1.0.0-RC-24-04-2026</code> - typos in dates are common.</p>`
+  },
+  naming_good: {
+    title: 'Correct naming convention',
+    body: `<p>All lowercase, hyphen-delimited, one ticket per branch:</p>
+<p><span class="tag tag-feature">feature/APP-1072-payment-filter</span><br>
+<span class="tag tag-bugfix">bugfix/APP-148-budget-status-rename</span><br>
+<span class="tag tag-hotfix">hotfix/APP-1085-summary-display</span><br>
+<span class="tag tag-spike">spike/payment-refactor</span></p>
+<p>Dates and RC info go in <strong>tags</strong> on main, not branch names: <code style="color:#9b59b6">v3.2.1</code> <code style="color:#9b59b6">v1.0.2-RC-2026-04-07</code></p>`
+  },
+  ai: {
+    title: 'AI-Paired Development',
+    body: `<p>AI pairing keeps the same branch shapes - but adjusts cadence, scope, and cleanup. Velocity is bursty; coordination has to be tighter; spike branches accumulate faster.</p>
+<p>Click each card to drill in.</p>`
+  },
+  ai_velocity: {
+    title: 'AI Pairing - Burst Velocity',
+    body: `<p>AI-paired output is gated by token budget - bursty, not steady. A session can produce a feature in an hour, then stall.</p>
+<p><strong>Claim and announce the instant work starts and finishes.</strong> AI speed can outrun standup cadence. A ticket that took two days now finishes in one session - faster than the next sync.</p>`
+  },
+  ai_scope: {
+    title: 'AI Pairing - Session Scope',
+    body: `<p>Scope branches to <strong>"what fits in one productive session"</strong> rather than calendar time. Split tickets before starting if the work exceeds one session.</p>
+<p>Always commit + push WIP before session ends. Include a <code>SESSION.md</code> note: what's done, what's next, decisions made. An AI agent starts cold next session.</p>`
+  },
+  ai_spike: {
+    title: 'AI Pairing - Spike Discipline',
+    body: `<p>AI makes it nearly free to spin up competing approaches. This produces spike clutter fast - faster than human teams.</p>
+<p>Park exploratory work under <span class="tag tag-spike">spike/</span> with a <strong>7-day TTL</strong> (stricter than the human 14-day rule). Delete losers immediately. Rebuild winners as a proper feature/* with clean history.</p>`
+  },
+  ai_pr: {
+    title: 'AI Pairing - Review Discipline',
+    body: `<p>A 1,500-line PR generated in 20 minutes needs <strong>more</strong> reviewer attention per line, not less - it hasn't had natural "sat with it overnight" scrutiny.</p>
+<p>Slice large AI-assisted changes into a sequence of small PRs. Note in the PR description: "drafted with AI, reviewed and adjusted by Developer A" - helps reviewers calibrate.</p>`
+  },
+};
+
+// ─── Panel helpers ─────────────────────────────────────────────────────────
+function showPanel(key) {
+  const d = INFO[key];
+  if (!d) return;
+  document.getElementById('panel-title').textContent = d.title;
+  document.getElementById('panel-body').innerHTML = d.body;
+  document.getElementById('info-panel').classList.add('open');
+}
+document.getElementById('close-panel').onclick = () =>
+  document.getElementById('info-panel').classList.remove('open');
+
+// ─── Shared drawing helpers ────────────────────────────────────────────────
+function drawBg(scene, W, H) {
+  const g = scene.add.graphics();
+  g.fillGradientStyle(0x0a1628, 0x0a1628, 0x0d2040, 0x0d2040, 1);
+  g.fillRect(0, 0, W, H);
+  // subtle grid
+  g.lineStyle(1, 0x1a3055, 0.3);
+  for (let x = 0; x < W; x += 60) g.lineBetween(x, 0, x, H);
+  for (let y = 0; y < H; y += 60) g.lineBetween(0, y, W, y);
+  // corner accents (orange like background.png)
+  g.lineStyle(3, C.gold, 0.6);
+  g.lineBetween(0, H * 0.3, 0, H);
+  g.lineBetween(0, H, W * 0.3, H);
+  g.lineBetween(W, 0, W, H * 0.7);
+  g.lineBetween(W * 0.7, 0, W, 0);
+  return g;
+}
+
+function makeBranch(scene, x1, y1, x2, y2, color, label, thickness = 3) {
+  const g = scene.add.graphics();
+  g.lineStyle(thickness, color, 1);
+  g.lineBetween(x1, y1, x2, y2);
+  // arrow head
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const al = 12;
+  g.lineBetween(x2, y2, x2 - al * Math.cos(angle - 0.4), y2 - al * Math.sin(angle - 0.4));
+  g.lineBetween(x2, y2, x2 - al * Math.cos(angle + 0.4), y2 - al * Math.sin(angle + 0.4));
+  if (label) {
+    scene.add.text((x1 + x2) / 2, (y1 + y2) / 2 - 12, label, {
+      fontSize: '11px', color: '#' + color.toString(16).padStart(6, '0'),
+      fontFamily: 'monospace'
+    }).setOrigin(0.5);
+  }
+  return g;
+}
+
+function makeNode(scene, x, y, color, label, infoKey, radius = 14) {
+  const g = scene.add.graphics();
+  g.fillStyle(color, 1);
+  g.fillCircle(x, y, radius);
+  g.lineStyle(2, 0xffffff, 0.4);
+  g.strokeCircle(x, y, radius);
+
+  // hit zone
+  const hit = scene.add.circle(x, y, radius + 6, 0xffffff, 0)
+    .setInteractive({ useHandCursor: true });
+  hit.on('pointerover', () => { g.clear(); g.fillStyle(color, 1); g.fillCircle(x, y, radius + 3); g.lineStyle(2, C.gold, 1); g.strokeCircle(x, y, radius + 3); });
+  hit.on('pointerout',  () => { g.clear(); g.fillStyle(color, 1); g.fillCircle(x, y, radius); g.lineStyle(2, 0xffffff, 0.4); g.strokeCircle(x, y, radius); });
+  hit.on('pointerdown', () => infoKey && showPanel(infoKey));
+
+  if (label) {
+    scene.add.text(x, y + radius + 8, label, {
+      fontSize: '11px', color: '#aabbcc', fontFamily: 'monospace'
+    }).setOrigin(0.5, 0);
+  }
+  return { g, hit };
+}
+
+function makeClickBox(scene, x, y, w, h, color, title, infoKey) {
+  const g = scene.add.graphics();
+  g.lineStyle(1, color, 0.7);
+  g.fillStyle(color, 0.1);
+  g.strokeRoundedRect(x - w/2, y - h/2, w, h, 8);
+  g.fillRoundedRect(x - w/2, y - h/2, w, h, 8);
+  scene.add.text(x, y, title, {
+    fontSize: '13px', color: '#' + color.toString(16).padStart(6, '0'),
+    fontFamily: 'monospace', wordWrap: { width: w - 16 }, align: 'center'
+  }).setOrigin(0.5);
+  const hit = scene.add.rectangle(x, y, w, h, 0xffffff, 0).setInteractive({ useHandCursor: true });
+  hit.on('pointerdown', () => showPanel(infoKey));
+  hit.on('pointerover', () => { g.clear(); g.lineStyle(2, C.gold, 1); g.fillStyle(color, 0.2); g.strokeRoundedRect(x-w/2,y-h/2,w,h,8); g.fillRoundedRect(x-w/2,y-h/2,w,h,8); });
+  hit.on('pointerout',  () => { g.clear(); g.lineStyle(1, color, 0.7); g.fillStyle(color, 0.1); g.strokeRoundedRect(x-w/2,y-h/2,w,h,8); g.fillRoundedRect(x-w/2,y-h/2,w,h,8); });
+  return { g, hit };
+}
+
+// ─── Animated commit dot ───────────────────────────────────────────────────
+function animCommit(scene, x, y, color, delay = 0) {
+  const c = scene.add.graphics();
+  c.fillStyle(color, 0);
+  c.fillCircle(x, y, 8);
+  scene.time.delayedCall(delay, () => {
+    scene.tweens.add({
+      targets: c, alpha: { from: 0, to: 1 }, duration: 400,
+      onComplete: () => {
+        c.clear(); c.fillStyle(color, 1); c.fillCircle(x, y, 8);
+        c.lineStyle(2, 0xffffff, 0.5); c.strokeCircle(x, y, 8);
+      }
+    });
+  });
+  return c;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCENE: OVERVIEW
+// ═══════════════════════════════════════════════════════════════════════════
+class OverviewScene extends Phaser.Scene {
+  constructor() { super({ key: 'OverviewScene' }); }
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    drawBg(this, W, H);
+
+    this.add.text(W/2, 50, 'Branching Strategy: DevOps Baseline + Strategic Improvements', {
+      fontSize: '19px', color: '#f39c12', fontFamily: 'Segoe UI',
+      fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.add.text(W/2, 80, 'Four long-lived branches, four environments. Tier 1 collapses to a subset for solo work.', {
+      fontSize: '12px', color: '#8899aa', fontFamily: 'Segoe UI'
+    }).setOrigin(0.5);
+
+    // Two tier cards
+    const tiers = [
+      { x: W*0.30, label: 'Tier 1\nSolo',       sub: '1 contributor\ndev + main only\n(collapsed subset)',            color: C.feature, key: 'tier1' },
+      { x: W*0.70, label: 'Tier 2\nSmall Team', sub: '2-8 contributors\nfull 4-branch baseline\ndev / QA / UAT / prod', color: C.main,    key: 'tier2' },
+    ];
+    tiers.forEach(t => {
+      makeClickBox(this, t.x, H*0.26, 220, 120, t.color, t.label, t.key);
+      this.add.text(t.x, H*0.26 + 70, t.sub, {
+        fontSize: '11px', color: '#8899aa', fontFamily: 'Segoe UI', align: 'center'
+      }).setOrigin(0.5, 0);
+    });
+    // graduation arrow
+    {
+      const x1 = W*0.41, x2 = W*0.59;
+      const g = this.add.graphics();
+      g.lineStyle(1, C.gold, 0.5);
+      g.lineBetween(x1, H*0.26, x2, H*0.26);
+      g.lineBetween(x2, H*0.26, x2-10, H*0.26-6);
+      g.lineBetween(x2, H*0.26, x2-10, H*0.26+6);
+      this.add.text((x1+x2)/2, H*0.26-18, '2nd regular\ncontributor', {
+        fontSize: '10px', color: '#f39c12aa', fontFamily: 'Segoe UI', align: 'center'
+      }).setOrigin(0.5);
+    }
+
+    // Branch type legend (all 4 long-lived + work branches)
+    const btypes = [
+      { label: 'development',         color: C.main,    info: 'development' },
+      { label: 'staging (QA)',        color: C.chore,   info: 'staging' },
+      { label: 'release/yyyy-mm-dd',  color: C.release, info: 'release' },
+      { label: 'main (prod)',         color: C.gold,    info: 'main' },
+      { label: 'feature/*',           color: C.feature, info: 'feature' },
+      { label: 'bugfix/*',            color: C.bugfix,  info: 'bugfix' },
+      { label: 'hotfix/*',            color: C.hotfix,  info: 'hotfix' },
+      { label: 'spike/*',             color: C.spike,   info: 'spike' },
+    ];
+    this.add.text(W/2, H*0.52, 'Branch Types (click to learn)', {
+      fontSize: '14px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    btypes.forEach((b, i) => {
+      const col = i % 4, row = Math.floor(i / 4);
+      const bx = W*0.165 + col * (W*0.22), by = H*0.60 + row * 56;
+      makeClickBox(this, bx, by, 165, 40, b.color, b.label, b.info);
+    });
+
+    // lifecycle mini-strip at bottom
+    this.add.text(W/2, H*0.80, 'Branch Lifecycle: 6 Stages', {
+      fontSize: '14px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    const stages = ['0 Claim','1 Birth','2 Develop','3 Integrate','4 Merge','5 Delete'];
+    stages.forEach((s, i) => {
+      const sx = W*0.1 + i * (W*0.8/5.5), sy = H*0.88;
+      const col = [C.gold,C.feature,C.main,C.chore,C.release,C.bugfix][i];
+      const g = this.add.graphics();
+      g.fillStyle(col, 0.15); g.lineStyle(1,col,0.8);
+      g.strokeRoundedRect(sx-36,sy-18,72,36,6);
+      g.fillRoundedRect(sx-36,sy-18,72,36,6);
+      this.add.text(sx, sy, s, { fontSize: '11px', color: '#cdd', fontFamily: 'Segoe UI', align:'center' }).setOrigin(0.5);
+      if (i < 5) {
+        const g2 = this.add.graphics();
+        g2.lineStyle(1,C.gold,0.4);
+        g2.lineBetween(sx+40,sy,sx+44,sy);
+        g2.lineBetween(sx+44,sy,sx+40,sy-4);
+        g2.lineBetween(sx+44,sy,sx+40,sy+4);
+      }
+    });
+
+    // floating particles
+    for (let i = 0; i < 20; i++) {
+      const px = Phaser.Math.Between(0, W);
+      const py = Phaser.Math.Between(0, H);
+      const pc = [C.gold, C.main, C.feature][i % 3];
+      const p = this.add.graphics();
+      p.fillStyle(pc, 0.4);
+      p.fillCircle(px, py, Phaser.Math.Between(1,3));
+      this.tweens.add({
+        targets: p, y: py - Phaser.Math.Between(30,80), alpha: 0,
+        duration: Phaser.Math.Between(3000,6000), ease: 'Sine.easeIn',
+        loop: -1, delay: Phaser.Math.Between(0,3000), yoyo: false,
+        onComplete: () => { p.y = py; p.alpha = 0.4; }
+      });
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCENE: TIER 1 - SOLO
+// ═══════════════════════════════════════════════════════════════════════════
+class Tier1Scene extends Phaser.Scene {
+  constructor() { super({ key: 'Tier1Scene' }); }
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    drawBg(this, W, H);
+
+    this.add.text(W/2, 38, 'Tier 1: Individual / Solo (collapsed subset)', {
+      fontSize: '20px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.add.text(W/2, 66, '1 contributor. Deliberately deviates from the baseline (no staging, no UAT). Click nodes to learn.', {
+      fontSize: '12px', color: '#8899aa', fontFamily: 'Segoe UI'
+    }).setOrigin(0.5);
+
+    // development line
+    const mainY = H * 0.42;
+    const commits = [120, 260, 380, 520, 660, 800, 920];
+    const g = this.add.graphics();
+    g.lineStyle(4, C.main, 1);
+    g.lineBetween(80, mainY, W - 60, mainY);
+    // development label
+    this.add.text(60, mainY - 18, 'development', { fontSize:'13px', color:'#3498db', fontFamily:'monospace', fontStyle:'bold' }).setOrigin(1,0.5);
+
+    // commits along main
+    commits.forEach((cx, i) => {
+      const delay = i * 200;
+      this.time.delayedCall(delay, () => {
+        const c = this.add.graphics();
+        c.fillStyle(C.main, 1);
+        c.fillCircle(cx, mainY, 10);
+        c.lineStyle(2, 0xffffff, 0.5);
+        c.strokeCircle(cx, mainY, 10);
+        this.tweens.add({ targets: c, scaleX: { from: 0, to: 1 }, scaleY: { from: 0, to: 1 }, duration: 300, ease: 'Back.easeOut' });
+      });
+    });
+
+    // feature branch (short-lived)
+    const fbY = mainY - 90;
+    this.time.delayedCall(600, () => {
+      const gb = this.add.graphics();
+      gb.lineStyle(3, C.feature, 1);
+      gb.lineBetween(380, mainY, 380, fbY);
+      gb.lineBetween(380, fbY, 520, fbY);
+      gb.lineBetween(520, fbY, 520, mainY);
+      this.add.text(450, fbY - 16, 'feature/TICKET-42-add-export', {
+        fontSize: '11px', color: '#2ecc71', fontFamily: 'monospace'
+      }).setOrigin(0.5);
+      // commits on feature
+      [420, 470, 510].forEach((fx, i) => {
+        this.time.delayedCall(i * 150, () => {
+          gb.fillStyle(C.feature, 1); gb.fillCircle(fx, fbY, 8);
+        });
+      });
+      // squash merge indicator
+      const sq = this.add.text(520, mainY + 22, '⊕ squash', { fontSize: '11px', color: '#2ecc71', fontFamily:'monospace' }).setOrigin(0.5,0);
+      this.tweens.add({ targets: sq, alpha: { from: 0, to: 1 }, duration: 500, delay: 800 });
+    });
+
+    // hotfix branch
+    const hfY = mainY + 90;
+    this.time.delayedCall(1200, () => {
+      const gh = this.add.graphics();
+      gh.lineStyle(3, C.hotfix, 1);
+      gh.lineBetween(660, mainY, 660, hfY);
+      gh.lineBetween(660, hfY, 800, hfY);
+      gh.lineBetween(800, hfY, 800, mainY);
+      this.add.text(730, hfY + 16, 'hotfix/TICKET-99-null-crash', {
+        fontSize: '11px', color: '#e67e22', fontFamily: 'monospace'
+      }).setOrigin(0.5, 0);
+      const tag = this.add.text(800, mainY - 30, '🏷 v1.2.1', { fontSize: '12px', color: '#9b59b6', fontFamily: 'monospace' }).setOrigin(0.5);
+      this.tweens.add({ targets: tag, y: mainY - 40, alpha: { from: 0, to: 1 }, duration: 600, delay: 600 });
+    });
+
+    // rules panel
+    const rules = [
+      '✓  Branch from tip of development',
+      '✓  Draft PR from day 1',
+      '✓  Squash-merge back to development',
+      '✓  Delete branch after merge',
+      '✓  Tag main on every release (vX.Y.Z)',
+      '✗  No staging / release/* at this tier',
+      '⤴  Graduate to Tier 2 (full baseline)',
+      '    when a 2nd contributor joins',
+    ];
+    const rx = W * 0.72, ry = H * 0.72;
+    const rg = this.add.graphics();
+    rg.lineStyle(1, C.main, 0.4); rg.fillStyle(C.main, 0.06);
+    rg.strokeRoundedRect(rx - 10, ry - 14, 260, rules.length * 22 + 20, 8);
+    rg.fillRoundedRect(rx - 10, ry - 14, 260, rules.length * 22 + 20, 8);
+    this.add.text(rx + 120, ry - 20, 'Solo Rules', { fontSize: '12px', color: '#3498db', fontFamily: 'Segoe UI', fontStyle: 'bold' }).setOrigin(0.5, 1);
+    rules.forEach((r, i) => {
+      const col = r.startsWith('✓') ? '#2ecc71' : '#e74c3c';
+      this.add.text(rx, ry + i * 22, r, { fontSize: '12px', color: col, fontFamily: 'Segoe UI' });
+    });
+
+    // Developer A label
+    const devA = this.add.text(200, mainY - 140, '👤 Developer A', {
+      fontSize: '14px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: devA, y: mainY - 148, duration: 2000, yoyo: true, loop: -1, ease: 'Sine.easeInOut' });
+
+    // clickable info areas
+    makeClickBox(this, 150, mainY, 120, 30, C.main, 'development', 'development');
+    makeClickBox(this, 450, fbY, 140, 28, C.feature, 'feature/*', 'feature');
+    makeClickBox(this, 730, hfY, 140, 28, C.hotfix, 'hotfix/*', 'hotfix');
+    makeClickBox(this, W*0.18, H*0.78, 160, 60, C.gold, 'Tier 1 Rules\n(click)', 'tier1');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCENE: TIER 2 - SMALL TEAM (full DevOps baseline)
+// ═══════════════════════════════════════════════════════════════════════════
+class Tier2Scene extends Phaser.Scene {
+  constructor() { super({ key: 'Tier2Scene' }); }
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    drawBg(this, W, H);
+
+    this.add.text(W/2, 36, 'Tier 2: Small Team (2-8 contributors) - full DevOps baseline', {
+      fontSize: '18px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.add.text(W/2, 60, 'feature cut from staging -> PR to development -> PR back to staging -> release/UAT -> main', {
+      fontSize: '11px', color: '#8899aa', fontFamily: 'Segoe UI'
+    }).setOrigin(0.5);
+
+    // Four horizontal lanes, top -> bottom = downstream -> upstream
+    // Layout: development (top, work integrates here first), staging, release/UAT, main (bottom, production)
+    const devY  = H * 0.22;
+    const stgY  = H * 0.38;
+    const relY  = H * 0.54;
+    const mnY   = H * 0.70;
+    const laneL = 130, laneR = W - 80;
+
+    const drawLane = (y, color, label, sub) => {
+      const g = this.add.graphics();
+      g.lineStyle(4, color, 0.9);
+      g.lineBetween(laneL, y, laneR, y);
+      this.add.text(laneL - 8, y, label, { fontSize: '12px', color: '#' + color.toString(16).padStart(6,'0'), fontFamily: 'monospace', fontStyle: 'bold' }).setOrigin(1, 0.5);
+      this.add.text(laneL - 8, y + 14, sub, { fontSize: '9px', color: '#8899aa', fontFamily: 'Segoe UI' }).setOrigin(1, 0.5);
+    };
+    drawLane(devY, C.main,    'development', 'integration env');
+    drawLane(stgY, C.chore,   'staging',     'QA env (testers)');
+    drawLane(relY, C.release, 'release/yyyy-mm-dd', 'UAT env');
+    drawLane(mnY,  C.gold,    'main',        'production');
+
+    // Commits / nodes on each long-lived branch
+    const commitDot = (x, y, color, r=7) => {
+      const c = this.add.graphics();
+      c.fillStyle(color, 1); c.fillCircle(x, y, r);
+      c.lineStyle(2, 0xffffff, 0.5); c.strokeCircle(x, y, r);
+      return c;
+    };
+    [200, 320, 460, 600, 760, 900].forEach(x => commitDot(x, devY, C.main));
+    [260, 460, 760].forEach(x => commitDot(x, stgY, C.chore));
+    commitDot(760, relY, C.release, 8);
+    commitDot(900, mnY,  C.gold, 9);
+
+    // Feature branch: cut from staging, PR to development, then PR to staging
+    const fxStart = 260;     // cut point on staging
+    const fxDev   = 460;     // first PR target on development
+    const fxStg2  = 460;     // second PR target on staging (right after dev integration passes)
+    const fxBranchY = (devY + stgY) / 2 - 30; // floats above staging
+
+    this.time.delayedCall(250, () => {
+      const g = this.add.graphics();
+      g.lineStyle(3, C.feature, 1);
+      // cut from staging at fxStart, go up to feature lane
+      g.lineBetween(fxStart, stgY, fxStart, fxBranchY);
+      // feature branch lives between fxStart and fxDev
+      g.lineBetween(fxStart, fxBranchY, fxDev, fxBranchY);
+      // PR #1: down to development
+      g.lineBetween(fxDev, fxBranchY, fxDev, devY);
+      this.add.text((fxStart + fxDev) / 2, fxBranchY - 12, 'feature/APP-101-dashboard', {
+        fontSize: '10px', color: '#2ecc71', fontFamily: 'monospace'
+      }).setOrigin(0.5);
+      // arrow head into dev
+      const ah = this.add.graphics();
+      ah.lineStyle(2, C.feature, 1);
+      ah.lineBetween(fxDev, devY, fxDev - 5, devY - 6);
+      ah.lineBetween(fxDev, devY, fxDev + 5, devY - 6);
+      this.add.text(fxDev + 6, (fxBranchY + devY) / 2, 'PR #1\nintegration', {
+        fontSize: '9px', color: '#2ecc7199', fontFamily: 'Segoe UI'
+      });
+
+      // PR #2: same feature branch back to staging (offset slightly right so visible)
+      const fxStg2X = fxDev + 60;
+      const g2 = this.add.graphics();
+      g2.lineStyle(2, C.feature, 0.7);
+      // shows continuation of feature branch then PR to staging
+      g2.lineBetween(fxDev, fxBranchY, fxStg2X, fxBranchY);
+      g2.lineBetween(fxStg2X, fxBranchY, fxStg2X, stgY);
+      const ah2 = this.add.graphics();
+      ah2.lineStyle(2, C.feature, 1);
+      ah2.lineBetween(fxStg2X, stgY, fxStg2X - 5, stgY - 6);
+      ah2.lineBetween(fxStg2X, stgY, fxStg2X + 5, stgY - 6);
+      this.add.text(fxStg2X + 6, (fxBranchY + stgY) / 2, 'PR #2\nQA', {
+        fontSize: '9px', color: '#2ecc7199', fontFamily: 'Segoe UI'
+      });
+    });
+
+    // Release branch: cut from staging near sprint end, lives to UAT, merges to main
+    this.time.delayedCall(800, () => {
+      const cutX = 760, mergeX = 900;
+      const g = this.add.graphics();
+      g.lineStyle(3, C.release, 0.95);
+      g.lineBetween(cutX, stgY, cutX, relY);
+      g.lineBetween(cutX, relY, mergeX, relY);
+      g.lineBetween(mergeX, relY, mergeX, mnY);
+      this.add.text((cutX + mergeX) / 2, relY - 12, 'release/2026-05-22', {
+        fontSize: '10px', color: '#9b59b6', fontFamily: 'monospace'
+      }).setOrigin(0.5);
+      // tag on main
+      const tag = this.add.text(mergeX, mnY + 22, 'tag v3.2.0', {
+        fontSize: '10px', color: '#f39c12', fontFamily: 'monospace'
+      }).setOrigin(0.5, 0);
+      this.tweens.add({ targets: tag, alpha: { from: 0, to: 1 }, duration: 600 });
+    });
+
+    // Hotfix branch: from main tag, back to main, forward-port to lower envs
+    this.time.delayedCall(1400, () => {
+      const hfStart = 220, hfBack = 300;
+      const hfY = mnY + 50;
+      const g = this.add.graphics();
+      g.lineStyle(2, C.hotfix, 0.9);
+      g.lineBetween(hfStart, mnY, hfStart, hfY);
+      g.lineBetween(hfStart, hfY, hfBack, hfY);
+      g.lineBetween(hfBack, hfY, hfBack, mnY);
+      this.add.text((hfStart + hfBack) / 2, hfY + 8, 'hotfix/APP-99-fix', {
+        fontSize: '10px', color: '#e67e22', fontFamily: 'monospace'
+      }).setOrigin(0.5, 0);
+      // forward-port dashed lines upward to release, staging, development
+      const fpX = hfBack + 4;
+      [relY, stgY, devY].forEach((targetY, i) => {
+        const dg = this.add.graphics();
+        dg.lineStyle(1, C.hotfix, 0.45);
+        const startY = mnY;
+        // simple straight line up
+        dg.lineBetween(fpX, startY, fpX + 30 + i * 12, targetY);
+      });
+      this.add.text(hfBack + 90, mnY - 8, 'forward-port to\nrelease, staging, dev', {
+        fontSize: '9px', color: '#e67e2299', fontFamily: 'Segoe UI'
+      }).setOrigin(0, 1);
+    });
+
+    // Rules box
+    const rules = [
+      '✓  feature/* cut from staging (per baseline)',
+      '✓  PR #1 to development (integration), PR #2 to staging (QA)',
+      '✓  release/yyyy-mm-dd cut from staging at sprint end',
+      '✓  UAT validates on release/*, merge to main + tag',
+      '✓  hotfix from main tag -> main -> forward-port',
+      '✓  Minimum 1 reviewer, naming enforced, auto-delete on merge',
+    ];
+    const rx = W*0.04, ry = H*0.88;
+    const rg = this.add.graphics();
+    rg.lineStyle(1, C.main, 0.3); rg.fillStyle(C.main, 0.05);
+    rg.strokeRoundedRect(rx-10, ry-14, 380, rules.length*14+8, 8);
+    rg.fillRoundedRect(rx-10, ry-14, 380, rules.length*14+8, 8);
+    this.add.text(rx+180, ry-20, 'Small Team Rules', { fontSize:'12px', color:'#3498db', fontFamily:'Segoe UI', fontStyle:'bold' }).setOrigin(0.5, 1);
+    rules.forEach((r,i) => {
+      this.add.text(rx, ry+i*14, r, { fontSize: '10px', color: '#2ecc71', fontFamily:'Segoe UI' });
+    });
+
+    makeClickBox(this, W*0.62, H*0.93, 120, 32, C.main,    'Tier 2',     'tier2');
+    makeClickBox(this, W*0.74, H*0.93, 120, 32, C.feature, 'feature/*',  'feature');
+    makeClickBox(this, W*0.86, H*0.93, 120, 32, C.release, 'release/*',  'release');
+    makeClickBox(this, W*0.98 - 60, H*0.93, 120, 32, C.hotfix, 'hotfix/*', 'hotfix');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCENE: LIFECYCLE
+// ═══════════════════════════════════════════════════════════════════════════
+class LifecycleScene extends Phaser.Scene {
+  constructor() { super({ key: 'LifecycleScene' }); }
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    drawBg(this, W, H);
+
+    this.add.text(W/2, 38, 'Branch Lifecycle: 6 Stages', {
+      fontSize: '20px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.add.text(W/2, 66, 'Every branch moves through these stages. Click each to learn.', {
+      fontSize: '12px', color: '#8899aa', fontFamily: 'Segoe UI'
+    }).setOrigin(0.5);
+
+    const stages = [
+      { key:'lifecycle0', label:'0\nCLAIM',     sub:'Ticket → In Progress\nName branch\nCheck overlap', color:C.gold },
+      { key:'lifecycle1', label:'1\nBIRTH',     sub:'Push branch\nDraft PR\nCorrect base', color:C.feature },
+      { key:'lifecycle2', label:'2\nDEVELOP',   sub:'Commit small\nSync daily\nSet TTL', color:C.main },
+      { key:'lifecycle3', label:'3\nINTEGRATE', sub:'Open PR\nCI gates\nCode review', color:C.chore },
+      { key:'lifecycle4', label:'4\nMERGE',     sub:'Squash to main\nTag release\nHotfix dual-merge', color:C.release },
+      { key:'lifecycle5', label:'5\nDELETE',    sub:'Auto-delete\nSweep stale\nNo "just in case"', color:C.bugfix },
+    ];
+
+    const stageW = (W - 120) / stages.length;
+    const centerY = H * 0.42;
+
+    // connecting line
+    const lg = this.add.graphics();
+    lg.lineStyle(2, C.gold, 0.3);
+    lg.lineBetween(80, centerY, W - 60, centerY);
+
+    stages.forEach((s, i) => {
+      const sx = 100 + i * stageW + stageW/2;
+      // box
+      const g = this.add.graphics();
+      g.fillStyle(s.color, 0.15); g.lineStyle(2, s.color, 0.8);
+      g.strokeRoundedRect(sx - 70, centerY - 55, 140, 110, 10);
+      g.fillRoundedRect(sx - 70, centerY - 55, 140, 110, 10);
+      this.add.text(sx, centerY - 20, s.label, {
+        fontSize: '18px', color: '#'+s.color.toString(16).padStart(6,'0'),
+        fontFamily: 'Segoe UI', fontStyle: 'bold', align: 'center'
+      }).setOrigin(0.5);
+      this.add.text(sx, centerY + 20, s.sub, {
+        fontSize: '10px', color: '#aabbcc', fontFamily: 'Segoe UI', align: 'center'
+      }).setOrigin(0.5, 0);
+
+      // clickable
+      const hit = this.add.rectangle(sx, centerY, 140, 110, 0xffffff, 0).setInteractive({ useHandCursor: true });
+      hit.on('pointerdown', () => showPanel(s.key));
+      hit.on('pointerover', () => {
+        g.clear(); g.fillStyle(s.color,0.3); g.lineStyle(2,C.gold,1);
+        g.strokeRoundedRect(sx-70,centerY-55,140,110,10);
+        g.fillRoundedRect(sx-70,centerY-55,140,110,10);
+      });
+      hit.on('pointerout', () => {
+        g.clear(); g.fillStyle(s.color,0.15); g.lineStyle(2,s.color,0.8);
+        g.strokeRoundedRect(sx-70,centerY-55,140,110,10);
+        g.fillRoundedRect(sx-70,centerY-55,140,110,10);
+      });
+
+      // arrow
+      if (i < stages.length - 1) {
+        const ag = this.add.graphics();
+        ag.lineStyle(2, C.gold, 0.5);
+        const ax = sx + 72; ag.lineBetween(ax, centerY, ax + 22, centerY);
+        ag.lineBetween(ax+22, centerY, ax+14, centerY-6);
+        ag.lineBetween(ax+22, centerY, ax+14, centerY+6);
+      }
+
+      // animated entrance
+      this.add.tween({ targets: g, alpha: { from: 0, to: 1 }, duration: 400, delay: i * 150 });
+    });
+
+    // TTL table
+    const ttlY = H * 0.70;
+    this.add.text(W/2, ttlY - 10, 'Target Lifetimes', {
+      fontSize: '14px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    const ttls = [
+      { type: 'feature/*, bugfix/*, chore/*', time: 'days (< 1 sprint)',       col: C.feature },
+      { type: 'hotfix/*',                     time: 'hours',                   col: C.hotfix },
+      { type: 'spike/*, username/*',          time: '7 days (AI) / 14 days (human)', col: C.spike },
+      { type: 'release/yyyy-mm-dd',           time: 'one sprint (UAT cycle)',  col: C.release },
+      { type: 'development, staging, main',   time: 'permanent (long-lived envs)', col: C.main },
+    ];
+    ttls.forEach((t, i) => {
+      const col = i % 2 === 0 ? 2 : 3;
+      const tx = W * 0.08 + Math.floor(i/3) * W*0.46;
+      const ty = ttlY + 20 + (i % 3) * 28;
+      const tg = this.add.graphics();
+      tg.fillStyle(t.col, 0.1); tg.lineStyle(1,t.col,0.4);
+      tg.strokeRoundedRect(tx, ty, 380, 24, 4);
+      tg.fillRoundedRect(tx, ty, 380, 24, 4);
+      this.add.text(tx + 8, ty + 12, t.type, { fontSize:'11px', color:'#'+t.col.toString(16).padStart(6,'0'), fontFamily:'monospace' }).setOrigin(0,0.5);
+      this.add.text(tx + 200, ty + 12, t.time, { fontSize:'11px', color:'#cdd', fontFamily:'Segoe UI' }).setOrigin(0,0.5);
+    });
+
+    // animated commit traveling along the lifecycle
+    const traveler = this.add.graphics();
+    traveler.fillStyle(C.gold, 1); traveler.fillCircle(0,0,8);
+    const stageXs = stages.map((s,i) => 100 + i * stageW + stageW/2);
+    let idx = 0;
+    const moveTraveler = () => {
+      if (idx >= stageXs.length) { idx = 0; traveler.x = stageXs[0]; traveler.y = centerY + 62; return; }
+      this.tweens.add({
+        targets: traveler, x: stageXs[idx], y: centerY + 62,
+        duration: 800, ease: 'Sine.easeInOut',
+        onComplete: () => { idx++; this.time.delayedCall(400, moveTraveler); }
+      });
+    };
+    traveler.x = stageXs[0]; traveler.y = centerY + 62;
+    this.time.delayedCall(500, moveTraveler);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCENE: NAMING CONVENTION
+// ═══════════════════════════════════════════════════════════════════════════
+class NamingScene extends Phaser.Scene {
+  constructor() { super({ key: 'NamingScene' }); }
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    drawBg(this, W, H);
+
+    this.add.text(W/2, 38, 'Naming Convention - Right vs Wrong', {
+      fontSize: '20px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.add.text(W/2, 66, 'Illustrative examples · click panels to see the rule', {
+      fontSize: '12px', color: '#8899aa', fontFamily: 'Segoe UI'
+    }).setOrigin(0.5);
+
+    const leftX = W * 0.26, rightX = W * 0.74;
+
+    // Left panel - bad
+    const bg_bad = this.add.graphics();
+    bg_bad.fillStyle(0xe74c3c, 0.06); bg_bad.lineStyle(1, 0xe74c3c, 0.4);
+    bg_bad.strokeRoundedRect(60, 90, W*0.45, H*0.6, 12);
+    bg_bad.fillRoundedRect(60, 90, W*0.45, H*0.6, 12);
+    this.add.text(leftX, 108, '✗  Anti-patterns to avoid', { fontSize:'14px', color:'#e74c3c', fontFamily:'Segoe UI', fontStyle:'bold' }).setOrigin(0.5);
+    const bads = [
+      'bugFix/APP-1350',
+      'Bugfix/APP-1350',
+      'BugFix/APP-126dev',
+      'HOTFIX/GEO-ADDRESS',
+      'HotFix/APP-126-Dev',
+      'feature/APP-80,APP-89,APP-84',
+      'release/1.0.0-RC-24-04-2026',
+      'release/2025-10-06b',
+      'APP-1053',
+      'crunchTime1',
+      'mergeConflict/APP-220-dev',
+      'globals',
+      'APP-37.1',
+    ];
+    bads.forEach((b, i) => {
+      const t = this.add.text(80, 132 + i * 28, b, {
+        fontSize: '12px', color: '#e74c3c', fontFamily: 'monospace'
+      });
+      this.tweens.add({ targets: t, alpha: { from:0, to:1 }, x: { from: 60, to: 80 }, duration: 300, delay: i * 60 });
+    });
+
+    const hit_bad = this.add.rectangle(leftX, 90 + H*0.3, W*0.45, H*0.6, 0xffffff, 0).setInteractive({ useHandCursor: true });
+    hit_bad.on('pointerdown', () => showPanel('naming_bad'));
+    hit_bad.on('pointerover', () => { bg_bad.clear(); bg_bad.fillStyle(0xe74c3c,0.12); bg_bad.lineStyle(1,C.gold,1); bg_bad.strokeRoundedRect(60,90,W*0.45,H*0.6,12); bg_bad.fillRoundedRect(60,90,W*0.45,H*0.6,12); });
+    hit_bad.on('pointerout',  () => { bg_bad.clear(); bg_bad.fillStyle(0xe74c3c,0.06); bg_bad.lineStyle(1,0xe74c3c,0.4); bg_bad.strokeRoundedRect(60,90,W*0.45,H*0.6,12); bg_bad.fillRoundedRect(60,90,W*0.45,H*0.6,12); });
+
+    // Right panel - good
+    const rx = W*0.5 + 20;
+    const bg_good = this.add.graphics();
+    bg_good.fillStyle(0x2ecc71, 0.06); bg_good.lineStyle(1, 0x2ecc71, 0.4);
+    bg_good.strokeRoundedRect(rx, 90, W*0.45, H*0.6, 12);
+    bg_good.fillRoundedRect(rx, 90, W*0.45, H*0.6, 12);
+    this.add.text(rightX, 108, '✓  Convention', { fontSize:'14px', color:'#2ecc71', fontFamily:'Segoe UI', fontStyle:'bold' }).setOrigin(0.5);
+    const goods = [
+      { label:'feature/APP-1072-payment-filter',     col:'#2ecc71' },
+      { label:'bugfix/APP-148-budget-rename',         col:'#e74c3c' },
+      { label:'hotfix/APP-1085-summary-display',      col:'#e67e22' },
+      { label:'hotfix/APP-99-fix → main + dev',       col:'#e67e22' },
+      { label:'spike/payment-refactor (≤7 days TTL)', col:'#f39c12' },
+      { label:'devA/excel-prototype (≤14 days TTL)',  col:'#f39c12' },
+      { label:'chore/sonarqube-pipeline',             col:'#1abc9c' },
+      { label:'v3.2.0  ← tag on main (not branch)',   col:'#9b59b6' },
+      { label:'v1.0.2-RC-2026-04-07  ← tag',          col:'#9b59b6' },
+      { label:'One ticket = one branch',              col:'#3498db' },
+      { label:'All lowercase, hyphen-delimited',      col:'#3498db' },
+    ];
+    goods.forEach((b, i) => {
+      const t = this.add.text(rx + 16, 132 + i * 28, b.label, {
+        fontSize: '12px', color: b.col, fontFamily: 'monospace'
+      });
+      this.tweens.add({ targets: t, alpha: { from:0, to:1 }, x: { from: rx+40, to: rx+16 }, duration: 300, delay: 200 + i * 60 });
+    });
+
+    const hit_good = this.add.rectangle(rightX, 90+H*0.3, W*0.45, H*0.6, 0xffffff, 0).setInteractive({ useHandCursor: true });
+    hit_good.on('pointerdown', () => showPanel('naming_good'));
+    hit_good.on('pointerover', () => { bg_good.clear(); bg_good.fillStyle(0x2ecc71,0.12); bg_good.lineStyle(1,C.gold,1); bg_good.strokeRoundedRect(rx,90,W*0.45,H*0.6,12); bg_good.fillRoundedRect(rx,90,W*0.45,H*0.6,12); });
+    hit_good.on('pointerout',  () => { bg_good.clear(); bg_good.fillStyle(0x2ecc71,0.06); bg_good.lineStyle(1,0x2ecc71,0.4); bg_good.strokeRoundedRect(rx,90,W*0.45,H*0.6,12); bg_good.fillRoundedRect(rx,90,W*0.45,H*0.6,12); });
+
+    // VS divider
+    this.add.text(W/2, H*0.42, 'VS', { fontSize:'28px', color:'#f39c12', fontFamily:'Segoe UI', fontStyle:'bold' }).setOrigin(0.5);
+
+    // enforcement note
+    const eng = this.add.text(W/2, H*0.78, '⚙  Enforce with Bitbucket branching model + branch permissions - convention alone is not enough', {
+      fontSize: '12px', color: '#f39c1299', fontFamily: 'Segoe UI', align: 'center', wordWrap: { width: W*0.8 }
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: eng, alpha: { from: 0.4, to: 1 }, duration: 1500, yoyo: true, loop: -1 });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCENE: AI PAIRING
+// ═══════════════════════════════════════════════════════════════════════════
+class AiScene extends Phaser.Scene {
+  constructor() { super({ key: 'AiScene' }); }
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    drawBg(this, W, H);
+
+    this.add.text(W/2, 38, 'AI-Paired Development - What Changes', {
+      fontSize: '20px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.add.text(W/2, 66, 'Same branch shapes. Adjusted cadence, scope, and hygiene.', {
+      fontSize: '12px', color: '#8899aa', fontFamily: 'Segoe UI'
+    }).setOrigin(0.5);
+
+    // Burst velocity visualisation
+    const velY = H * 0.28;
+    this.add.text(W*0.5, velY - 50, 'Velocity: Bursty, Not Steady', {
+      fontSize: '13px', color: '#f39c12', fontFamily: 'Segoe UI', fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    // human pace (steady)
+    const humanBars = [20,22,18,24,20,19,23,21];
+    humanBars.forEach((h,i) => {
+      const g = this.add.graphics();
+      g.fillStyle(C.main, 0.6);
+      g.fillRect(80 + i*60, velY - h, 40, h);
+    });
+    this.add.text(80 + humanBars.length*30, velY + 8, 'Human (steady)', {
+      fontSize: '11px', color: '#3498db', fontFamily: 'Segoe UI'
+    });
+
+    // AI pace (spiky)
+    const aiBars = [8,80,4,72,6,90,10,5];
+    aiBars.forEach((h,i) => {
+      const g = this.add.graphics();
+      g.fillStyle(C.gold, h > 40 ? 0.9 : 0.3);
+      g.fillRect(80 + i*60, velY - h, 40, h);
+      if (h > 40) {
+        const t = this.add.text(80+i*60+20, velY - h - 16, 'session!', {
+          fontSize:'10px', color:'#f39c12', fontFamily:'monospace'
+        }).setOrigin(0.5);
+        this.tweens.add({ targets:t, y: velY-h-22, alpha:{from:0,to:1}, duration:600, delay:i*200 });
+      }
+    });
+    this.add.text(80 + aiBars.length*60 + 10, velY - 50, 'AI-paired (bursty)', {
+      fontSize: '11px', color: '#f39c12', fontFamily: 'Segoe UI'
+    });
+
+    // 4 key cards
+    const cards = [
+      { x: W*0.14, y: H*0.60, color: C.gold,    key: 'ai_velocity', icon: '⚡', label: 'Announce\nImmediately', sub: 'Claim + finish\nfaster than standup' },
+      { x: W*0.38, y: H*0.60, color: C.feature,  key: 'ai_scope',    icon: '📦', label: 'Session\nScope',      sub: 'One session =\none branch' },
+      { x: W*0.62, y: H*0.60, color: C.spike,    key: 'ai_spike',    icon: '🗑', label: 'Spike TTL\n7 days',   sub: 'Delete losers\nRebuild winners' },
+      { x: W*0.86, y: H*0.60, color: C.release,  key: 'ai_pr',       icon: '🔍', label: 'Smaller\nPRs',        sub: 'More care per line\nnote AI authorship' },
+    ];
+    cards.forEach(c => {
+      const g = this.add.graphics();
+      g.fillStyle(c.color, 0.12); g.lineStyle(2, c.color, 0.8);
+      g.strokeRoundedRect(c.x-80, c.y-60, 160, 130, 10);
+      g.fillRoundedRect(c.x-80, c.y-60, 160, 130, 10);
+      this.add.text(c.x, c.y-36, c.icon, { fontSize:'26px' }).setOrigin(0.5);
+      this.add.text(c.x, c.y-4, c.label, { fontSize:'13px', color:'#'+c.color.toString(16).padStart(6,'0'), fontFamily:'Segoe UI', fontStyle:'bold', align:'center' }).setOrigin(0.5);
+      this.add.text(c.x, c.y+28, c.sub, { fontSize:'11px', color:'#8899aa', fontFamily:'Segoe UI', align:'center' }).setOrigin(0.5);
+      const hit = this.add.rectangle(c.x, c.y, 160, 130, 0xffffff, 0).setInteractive({ useHandCursor: true });
+      hit.on('pointerdown', () => showPanel(c.key));
+      hit.on('pointerover', () => { g.clear(); g.fillStyle(c.color,0.25); g.lineStyle(2,C.gold,1); g.strokeRoundedRect(c.x-80,c.y-60,160,130,10); g.fillRoundedRect(c.x-80,c.y-60,160,130,10); });
+      hit.on('pointerout',  () => { g.clear(); g.fillStyle(c.color,0.12); g.lineStyle(2,c.color,0.8); g.strokeRoundedRect(c.x-80,c.y-60,160,130,10); g.fillRoundedRect(c.x-80,c.y-60,160,130,10); });
+      this.tweens.add({ targets: g, alpha:{from:0,to:1}, y:{from:c.y+10,to:0}, duration:500, delay:cards.indexOf(c)*150 });
+    });
+
+    // SESSION.md reminder
+    const note = this.add.text(W/2, H*0.85, '📝  Always commit + push SESSION.md before ending a session - agents start cold next time', {
+      fontSize: '12px', color: '#f39c1299', fontFamily: 'Segoe UI', align:'center', wordWrap:{ width: W*0.75 }
+    }).setOrigin(0.5);
+    this.tweens.add({ targets:note, alpha:{from:0.4,to:1}, duration:1800, yoyo:true, loop:-1 });
+
+    // Stale branch counter ticker (visual metaphor - illustrative, not actual numbers)
+    let count = 0;
+    const counter = this.add.text(W*0.5, H*0.35, 'Stale branch count: 0', {
+      fontSize:'13px', color:'#e74c3c', fontFamily:'monospace'
+    }).setOrigin(0.5);
+    this.time.addEvent({ delay:80, repeat:40, callback: () => {
+      count += 2;
+      counter.setText(`Stale branches (without TTL): ${count}`);
+      if (count >= 80) { counter.setColor('#ff6666'); counter.setText('⚠  Stale branches pile up fast without a TTL'); }
+    }});
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASER CONFIG
+// ═══════════════════════════════════════════════════════════════════════════
+const config = {
+  type: Phaser.AUTO,
+  parent: 'game-container',
+  width: window.innerWidth,
+  height: window.innerHeight - 54,
+  backgroundColor: '#0a1628',
+  scene: [OverviewScene, Tier1Scene, Tier2Scene, LifecycleScene, NamingScene, AiScene],
+  scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
+};
+
+const game = new Phaser.Game(config);
+
+// ─── Nav switching ─────────────────────────────────────────────────────────
+const sceneMap = {
+  overview:  'OverviewScene',
+  tier1:     'Tier1Scene',
+  tier2:     'Tier2Scene',
+  lifecycle: 'LifecycleScene',
+  naming:    'NamingScene',
+  ai:        'AiScene',
+};
+const titles = {
+  overview:  'Branching Strategy',
+  tier1:     'Tier 1 - Solo',
+  tier2:     'Tier 2 - Small Team',
+  lifecycle: 'Branch Lifecycle',
+  naming:    'Naming Convention',
+  ai:        'AI Pairing',
+};
+
+// Each scene has a matching INFO key so the panel can auto-open with the right context.
+const sceneInfoKey = {
+  overview:  'overview',
+  tier1:     'tier1',
+  tier2:     'tier2',
+  lifecycle: 'lifecycle',
+  naming:    'naming',
+  ai:        'ai',
+};
+
+const state = { currentScene: 'overview' };
+
+function goToScene(key) {
+  if (!sceneMap[key] || key === state.currentScene) return;
+  const targetSceneKey = sceneMap[key];
+
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.scene === key);
+  });
+  document.getElementById('scene-title').textContent = titles[key];
+
+  // Stop every scene we manage (idempotent on inactive ones) so the canvas
+  // can't carry residual graphics from a prior visit. Then start the target
+  // fresh so its create() runs against a clean display list.
+  Object.values(sceneMap).forEach(sk => {
+    const s = game.scene.getScene(sk);
+    if (!s) return;
+    if (s.scene.isActive() || s.scene.isPaused() || s.scene.isSleeping()) {
+      game.scene.stop(sk);
+    }
+  });
+  game.scene.start(targetSceneKey);
+  state.currentScene = key;
+
+  const infoKey = sceneInfoKey[key];
+  if (infoKey && INFO[infoKey]) showPanel(infoKey);
+  else document.getElementById('info-panel').classList.remove('open');
+}
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => goToScene(btn.dataset.scene));
+});
+
+if (INFO[sceneInfoKey.overview]) showPanel(sceneInfoKey.overview);
+</script>
+</body>
+</html>
